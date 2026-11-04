@@ -32,6 +32,8 @@ thousands of package files.
 ```text
 adsorption_tool/
 ├── app.py                            Home page
+├── .streamlit/
+│   └── config.toml                   Colour theme (bright light theme)
 ├── pages/
 │   └── 1_Mechanism_for_Adsorption.py Mechanism section
 ├── modules/

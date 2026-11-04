@@ -42,7 +42,12 @@ def show_chart(fig, key):
     """Draw a figure at full width. Each chart needs its own key across tabs."""
     # Streamlit's default chart text is a pale grey, which is hard to read on the
     # small diagram labels, so the text colour follows the page theme instead.
-    ink = "#fafafa" if st.context.theme.type == "dark" else "#31333f"
+    # The theme in .streamlit/config.toml wins; without one, follow the viewer's.
+    base = st.get_option("theme.base") or st.context.theme.type
+    if base == "dark":
+        ink = "#fafafa"
+    else:
+        ink = st.get_option("theme.textColor") or "#31333f"
     fig.update_layout(font_color=ink)
     fig.update_xaxes(title_font_color=ink)
     fig.update_yaxes(title_font_color=ink)

@@ -1,0 +1,10 @@
+# Bright light theme for the whole tool. Streamlit reads this file at startup,
+# both locally and on Streamlit Community Cloud.
+[theme]
+base = "light"
+# Sliders, tabs and highlights. Bright blue that still reads on white (4.5:1).
+primaryColor = "#1A73E8"
+backgroundColor = "#FFFFFF"
+# Sidebar, cards and table backgrounds: a pale sky blue.
+secondaryBackgroundColor = "#EAF3FF"
+textColor = "#1B1F24"
