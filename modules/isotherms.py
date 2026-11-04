@@ -19,6 +19,21 @@ import numpy as np
 from scipy.optimize import brentq
 
 
+def linear(c, K):
+    """Linear isotherm (Henry's law): q = K * c.
+
+    Holds for dilute solutions, where the adsorbent is still far from full.
+
+    Args:
+        c: Fluid concentration in mg/L. A single number or a NumPy array.
+        K: Linear (Henry's law) constant in L/g. Must be above 0.
+
+    Returns:
+        Equilibrium loading q in mg/g, with the same shape as c.
+    """
+    return K * np.asarray(c, dtype=float)
+
+
 def freundlich(c, K, n):
     """Freundlich isotherm: q = K * c^n.
 

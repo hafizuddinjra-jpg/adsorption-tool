@@ -10,6 +10,7 @@ import streamlit as st
 from modules.isotherms import (
     freundlich,
     langmuir,
+    linear,
     percent_removal,
     solve_batch_equilibrium,
     validate_batch_inputs,
@@ -76,8 +77,9 @@ def stirred_tank_demo():
     """Sliders for one batch stage, and the plot of its equilibrium point."""
     st.markdown("#### Try it: find the equilibrium point")
     st.caption(
-        "The default values are an illustrative phenol on activated carbon style "
-        "example. The adsorbent starts fresh, so $q_F$ = 0 mg/g."
+        "The Freundlich defaults reproduce Example 12.2-1 from the lecture slides "
+        "(phenol on activated carbon), scaled to 1 L and 1.4 g with the same S/M. "
+        "The adsorbent starts fresh, so $q_F$ = 0 mg/g."
     )
 
     controls, results = st.columns([1, 2])
@@ -88,11 +90,21 @@ def stirred_tank_demo():
         S = st.slider("Solution volume $S$ (L)", 0.0, 5.0, 1.0, 0.1, key="st_S")
         M = st.slider("Adsorbent mass $M$ (g)", 0.0, 5.0, 1.4, 0.1, key="st_M")
         isotherm_name = st.radio(
-            "Isotherm", ["Freundlich", "Langmuir"], horizontal=True, key="st_isotherm"
+            "Isotherm",
+            ["Linear", "Freundlich", "Langmuir"],
+            index=1,
+            horizontal=True,
+            key="st_isotherm",
         )
 
         # The lower limits stay above 0 so an isotherm can never divide by zero.
-        if isotherm_name == "Freundlich":
+        if isotherm_name == "Linear":
+            K = st.slider("$K$ (L/g)", 0.1, 10.0, 1.0, 0.1, key="st_linear_K")
+
+            def isotherm(c):
+                return linear(c, K)
+
+        elif isotherm_name == "Freundlich":
             K = st.slider(
                 "$K$ (mg/g)(L/mg)$^n$", 1.0, 100.0, 41.0, 1.0, key="st_freundlich_K"
             )
@@ -150,9 +162,14 @@ def stirred_tank_tab():
     st.latex(r"q_F M + c_F S = q M + c S")
     st.markdown("Rearranged, this is the operating line, with a slope of $-S/M$:")
     st.latex(r"q = q_F + \frac{S}{M}\,(c_F - c)")
-    st.markdown("The isotherm gives the equilibrium relationship. Two common forms:")
+    st.markdown("The isotherm gives the equilibrium relationship. Three common forms:")
+    st.latex(r"q = K c \quad \text{(Linear, Henry's law, for dilute solutions)}")
     st.latex(r"q = K c^{\,n} \quad \text{(Freundlich)}")
     st.latex(r"q = \frac{q_0\, c}{K + c} \quad \text{(Langmuir)}")
+    st.caption(
+        "In each form, K (and n or $q_0$) are constants found by experiment at a "
+        "fixed temperature."
+    )
     st.markdown(
         "The answer lies where the operating line crosses the isotherm, because "
         "only that point satisfies both. The removal is then:"
