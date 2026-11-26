@@ -1,35 +1,31 @@
 """Mechanism for Adsorption: three contacting modes and a comparison table.
 
-This page holds the text, sliders and layout. The science is in
-modules/isotherms.py and the figures are in modules/mechanism_plots.py.
+This page holds the text, controls and layout. The published isotherm data are
+in modules/literature_isotherms.py and the figures are in modules/mechanism_plots.py.
 """
 
 import pandas as pd
 import streamlit as st
 
-from modules.isotherms import (
-    freundlich,
-    langmuir,
-    linear,
-    percent_removal,
-    solve_batch_equilibrium,
-    validate_batch_inputs,
+from modules.literature_isotherms import (
+    C_MAX,
+    CARBONS,
+    CITATION,
+    CONDITIONS,
+    DOI_URL,
+    LICENCE,
+    MODELS,
+    model_loading,
 )
 from modules.mechanism_plots import (
-    ADSORPTION_FACTOR,
-    COUNTERCURRENT_FEED,
     END_TIME,
-    MAX_STAGES,
-    batch_equilibrium_plot,
     breakthrough_plot,
     breakthrough_ratio,
     breakthrough_time,
-    countercurrent_comparison_plot,
     countercurrent_schematic,
     fixed_bed_column,
     fixed_bed_schematic,
-    single_stage_adsorbent_ratio,
-    stage_concentrations,
+    literature_isotherm_plot,
     stirred_tank_schematic,
 )
 
@@ -73,71 +69,123 @@ def show_pros_and_cons(advantages, disadvantages, applications):
 # ---------------------------------------------------------------------------
 
 
-def stirred_tank_demo():
-    """Sliders for one batch stage, and the plot of its equilibrium point."""
-    st.markdown("#### Try it: find the equilibrium point")
+def journal_isotherm_section():
+    """Published isotherms for methylene blue on activated carbon, with their source."""
+    st.markdown("#### From a journal: methylene blue on activated carbon")
+    st.markdown(
+        "Lawtae and Tangsathitkulchai (2021) made six activated carbons from longan "
+        "fruit seeds and measured how much methylene blue (MB) dye each one adsorbs "
+        "at equilibrium. They fitted three isotherm models to their data. The curves "
+        "below use the constants they published."
+    )
     st.caption(
-        "The Freundlich defaults reproduce Example 12.2-1 from the lecture slides "
-        "(phenol on activated carbon), scaled to 1 L and 1.4 g with the same S/M. "
-        "The adsorbent starts fresh, so $q_F$ = 0 mg/g."
+        f"Batch tests: {CONDITIONS['volume_mL']} mL of MB solution at "
+        f"{CONDITIONS['initial_conc_mg_L']} mg/L with {CONDITIONS['carbon_g']} g of "
+        f"carbon, {CONDITIONS['temperature_C']} °C, pH {CONDITIONS['pH']}, and "
+        f"{CONDITIONS['contact_time_h']} h to reach equilibrium. The constants come "
+        "from non-linear regression."
     )
 
-    controls, results = st.columns([1, 2])
+    controls, chart = st.columns([1, 2])
     with controls:
-        c_F = st.slider(
-            "Feed concentration $c_F$ (mg/L)", 0.0, 500.0, 210.0, 5.0, key="st_c_F"
+        carbon = st.selectbox(
+            "Activated carbon",
+            list(CARBONS),
+            index=5,
+            format_func=lambda k: (
+                f"{k}: {CARBONS[k]['pores'].lower()}, {CARBONS[k]['bet_m2_g']:,} m²/g"
+            ),
+            key="lit_carbon",
         )
-        S = st.slider("Solution volume $S$ (L)", 0.0, 5.0, 1.0, 0.1, key="st_S")
-        M = st.slider("Adsorbent mass $M$ (g)", 0.0, 5.0, 1.4, 0.1, key="st_M")
-        isotherm_name = st.radio(
-            "Isotherm",
-            ["Linear", "Freundlich", "Langmuir"],
-            index=1,
-            horizontal=True,
-            key="st_isotherm",
+        data = CARBONS[carbon]
+        st.caption(f"{data['sample']}, made by {data['made_by']}.")
+        st.markdown("Models to show")
+        models = [m for m in MODELS if st.checkbox(m, value=True, key=f"lit_model_{m}")]
+        c_read = st.slider(
+            "Read the curves at $C_e$ (mg/L)", 0, int(C_MAX), 100, 5, key="lit_c_read"
+        )
+    with chart:
+        if models:
+            show_chart(literature_isotherm_plot(carbon, models, c_read), "lit_plot")
+        else:
+            st.info("Tick at least one model to draw its curve.")
+
+    if models:
+        for column, model in zip(st.columns(len(MODELS)), models):
+            best = " (best fit)" if model == data["best"] else ""
+            column.metric(
+                f"{model}{best}, q_e (mg/g)", f"{float(model_loading(carbon, model, c_read)):.0f}"
+            )
+        st.caption(f"Each value is the predicted loading at C_e = {c_read} mg/L.")
+
+    lp, fp, rp = data["langmuir"], data["freundlich"], data["redlich_peterson"]
+    st.table(
+        pd.DataFrame(
+            {
+                "Model": list(MODELS),
+                "Constants": [
+                    f"q_m = {lp['q_m']:.2f} mg/g, K_L = {lp['K_L']:.3f} L/mg",
+                    f"K_F = {fp['K_F']:.1f}, n_F = {fp['n_F']:.2f}",
+                    f"K_R = {rp['K_R']:.1f} L/g, A_R = {rp['A_R']:.2f}, β = {rp['beta']:.2f}",
+                ],
+                "R²": [f"{p['R2']:.3f}" for p in (lp, fp, rp)],
+                "Δq (%)": [f"{p['dq']:.2f}" for p in (lp, fp, rp)],
+                "Authors' best fit": ["Yes" if m == data["best"] else "" for m in MODELS],
+            }
+        ).set_index("Model")
+    )
+    st.caption(
+        "Δq is the authors' relative error, so a lower value means a closer fit. "
+        "The paper prints no units for K_F and A_R."
+    )
+
+    st.markdown("**The models as the paper writes them**")
+    st.latex(r"q_e = \frac{q_m K_L C_e}{1 + K_L C_e} \quad \text{(Langmuir)}")
+    st.latex(r"q_e = K_F\, C_e^{1/n_F} \quad \text{(Freundlich)}")
+    st.latex(r"q_e = \frac{K_R C_e}{1 + A_R C_e^{\beta}} \quad \text{(Redlich-Peterson)}")
+    st.markdown(
+        "In the lecture's notation, this carbon's Langmuir constants are "
+        f"$q_0 = q_m$ = {lp['q_m']:.0f} mg/g and $K = 1/K_L$ = {1 / lp['K_L']:.1f} mg/L. "
+        f"Its Freundlich exponent is $n = 1/n_F$ = {1 / fp['n_F']:.3f}, because the "
+        "lecture's $n$ is the paper's $1/n_F$. Redlich–Peterson blends the two: "
+        "$\\beta = 1$ turns it into Langmuir, and at high $C_e$ it behaves like Freundlich."
+    )
+    st.markdown(
+        "The authors found that Redlich–Peterson best describes the microporous "
+        "carbons (A1–A3) and Freundlich the mesoporous ones (A4–A6)."
+    )
+
+    with st.expander("Constants for all six carbons (Table 7 of the paper)"):
+        st.table(
+            pd.DataFrame(
+                [
+                    {
+                        "Carbon": k,
+                        "Pores": v["pores"],
+                        "BET (m²/g)": f"{v['bet_m2_g']:,}",
+                        "q_m (mg/g)": f"{v['langmuir']['q_m']:.2f}",
+                        "K_L (L/mg)": f"{v['langmuir']['K_L']:.3f}",
+                        "Langmuir R²": f"{v['langmuir']['R2']:.3f}",
+                        "K_F": f"{v['freundlich']['K_F']:.1f}",
+                        "n_F": f"{v['freundlich']['n_F']:.2f}",
+                        "Freundlich R²": f"{v['freundlich']['R2']:.3f}",
+                        "K_R (L/g)": f"{v['redlich_peterson']['K_R']:.1f}",
+                        "A_R": f"{v['redlich_peterson']['A_R']:.2f}",
+                        "β": f"{v['redlich_peterson']['beta']:.2f}",
+                        "R–P R²": f"{v['redlich_peterson']['R2']:.3f}",
+                        "Best fit": v["best"],
+                    }
+                    for k, v in CARBONS.items()
+                ]
+            ).set_index("Carbon")
         )
 
-        # The lower limits stay above 0 so an isotherm can never divide by zero.
-        if isotherm_name == "Linear":
-            K = st.slider("$K$ (L/g)", 0.1, 10.0, 1.0, 0.1, key="st_linear_K")
-
-            def isotherm(c):
-                return linear(c, K)
-
-        elif isotherm_name == "Freundlich":
-            K = st.slider(
-                "$K$ (mg/g)(L/mg)$^n$", 1.0, 100.0, 41.0, 1.0, key="st_freundlich_K"
-            )
-            n = st.slider("$n$ (dimensionless)", 0.05, 1.0, 0.23, 0.01, key="st_n")
-
-            def isotherm(c):
-                return freundlich(c, K, n)
-
-        else:
-            q0 = st.slider("$q_0$ (mg/g)", 10.0, 300.0, 150.0, 5.0, key="st_q0")
-            K = st.slider("$K$ (mg/L)", 1.0, 100.0, 30.0, 1.0, key="st_langmuir_K")
-
-            def isotherm(c):
-                return langmuir(c, q0, K)
-
-    with results:
-        problems = validate_batch_inputs(c_F, S, M)
-        if problems:
-            # Plain if/else here, because st.stop() would also hide the other
-            # tabs and the comparison table.
-            for problem in problems:
-                st.warning(problem)
-        else:
-            c_eq, q_eq = solve_batch_equilibrium(c_F, S, M, isotherm)
-            metrics = st.columns(3)
-            metrics[0].metric("Equilibrium c (mg/L)", f"{c_eq:.1f}")
-            metrics[1].metric("Equilibrium q (mg/g)", f"{q_eq:.1f}")
-            metrics[2].metric("Removal (%)", f"{percent_removal(c_F, c_eq):.1f}")
-            show_chart(
-                batch_equilibrium_plot(c_F, S, M, isotherm, c_eq, q_eq),
-                "st_equilibrium_plot",
-            )
-            st.caption(f"Operating line slope: −S/M = −{S / M:.2f} L/g.")
+    st.caption(
+        "Curves are the authors' fitted models over the range they measured "
+        f"(C_e up to {C_MAX:.0f} mg/L). Their measured points are plotted in Figure 4 "
+        "of the paper and are not reproduced here."
+    )
+    st.markdown(f"Source: {CITATION} [{DOI_URL}]({DOI_URL}). Open access under {LICENCE}.")
 
 
 def stirred_tank_tab():
@@ -196,48 +244,12 @@ def stirred_tank_tab():
     )
 
     st.divider()
-    stirred_tank_demo()
+    journal_isotherm_section()
 
 
 # ---------------------------------------------------------------------------
 # Tab 2: continuous countercurrent
 # ---------------------------------------------------------------------------
-
-
-def countercurrent_demo():
-    """Stage slider, animated diagram and the illustrative comparison plot."""
-    st.markdown("#### Try it: add stages")
-    st.caption(
-        "Illustrative calculation, not a design method. It assumes ideal stages, a "
-        f"linear isotherm, $c_F$ = {COUNTERCURRENT_FEED:.0f} mg/L and a fixed "
-        f"adsorption factor $A$ = {ADSORPTION_FACTOR}."
-    )
-
-    n_stages = st.slider(
-        "Number of stages $N$", 1, MAX_STAGES, 3, 1, key="cc_stages"
-    )
-    st.markdown(
-        "Press **Play** to watch the streams. Fluid dots fade as solute is removed. "
-        "Adsorbent dots start faint and grow stronger as they load up. The value in "
-        "each stage is the concentration of the fluid leaving it."
-    )
-    show_chart(countercurrent_schematic(n_stages, animate=True), "cc_animation")
-
-    c_stages = stage_concentrations(COUNTERCURRENT_FEED, ADSORPTION_FACTOR, n_stages)
-    c_out = float(c_stages[-1])
-    ratio = single_stage_adsorbent_ratio(COUNTERCURRENT_FEED, c_out, ADSORPTION_FACTOR)
-
-    chart, summary = st.columns([2, 1])
-    with chart:
-        show_chart(countercurrent_comparison_plot(n_stages), "cc_comparison")
-    with summary:
-        st.metric("Outlet concentration (mg/L)", f"{c_out:.1f}")
-        st.metric("Removal (%)", f"{percent_removal(COUNTERCURRENT_FEED, c_out):.1f}")
-        st.metric("Single-stage adsorbent ratio", f"{ratio:.1f}×")
-        st.caption(
-            "A single stage would need this many times as much adsorbent for the "
-            "same removal."
-        )
 
 
 def countercurrent_tab():
@@ -269,14 +281,6 @@ def countercurrent_tab():
         "It runs from ($c_{out}$, $q_{in}$) at the dilute end to ($c_F$, $q_{out}$) "
         "at the strong end."
     )
-    st.markdown(
-        "The demo below uses a linear isotherm $q = K_{lin} c$ with fresh adsorbent "
-        "($q_{in}$ = 0), which gives a simple result:"
-    )
-    st.latex(
-        r"\frac{c_{out}}{c_F} = \frac{A - 1}{A^{N+1} - 1}"
-        r"\qquad A = \frac{K_{lin} M}{S}"
-    )
 
     show_pros_and_cons(
         advantages=[
@@ -295,9 +299,6 @@ def countercurrent_tab():
             "Simulated moving beds for xylene and sugar separation",
         ],
     )
-
-    st.divider()
-    countercurrent_demo()
 
 
 # ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 from plotly.colors import sample_colorscale
 
 from modules.isotherms import batch_operating_line
+from modules.literature_isotherms import C_MAX, CARBONS, model_loading
 
 # One colour per material, used in all three tabs. Both pass the colour-blind
 # and contrast checks on light and dark backgrounds.
@@ -23,10 +24,13 @@ COLUMN_COLORSCALE = [[0.0, "#fbe4d8"], [1.0, ADSORBENT_COLOR]]
 # Marker for "you are here" points. A white centre reads on either background.
 CURRENT_POINT = dict(size=14, color="#ffffff", line=dict(color="#52514e", width=3))
 
-# Illustrative countercurrent example.
-COUNTERCURRENT_FEED = 100.0  # c_F, mg/L
-ADSORPTION_FACTOR = 1.5  # A = K_lin * M / S, dimensionless
-MAX_STAGES = 5
+# One colour per isotherm model on the journal chart: the first three slots of a
+# colour-blind-checked palette, so any two models stay distinguishable.
+MODEL_COLORS = {
+    "Langmuir": "#2a78d6",
+    "Freundlich": "#eb6834",
+    "Redlich–Peterson": "#1baf7a",
+}
 
 # Illustrative fixed bed example.
 BED_HEIGHT = 100.0  # H_T, cm
@@ -39,39 +43,6 @@ END_TIME = 200.0  # last time shown, min
 # ---------------------------------------------------------------------------
 # Small illustrative calculations
 # ---------------------------------------------------------------------------
-
-
-def stage_concentrations(c_F, A, n_stages):
-    """Fluid concentration leaving each ideal countercurrent stage, in mg/L.
-
-    Assumes a linear isotherm q = K_lin * c and fresh adsorbent (q_in = 0). Fluid
-    enters stage 1 and adsorbent enters stage N. The solute balance around stage
-    i then gives c_(i-1) + A * c_(i+1) = (1 + A) * c_i, which solves to
-
-        c_i / c_F = (A^(N + 1 - i) - 1) / (A^(N + 1) - 1)
-
-    Args:
-        c_F: Feed concentration in mg/L.
-        A: Adsorption factor K_lin * M / S (dimensionless).
-        n_stages: Number of stages N.
-
-    Returns:
-        Array of c_1 to c_N in mg/L. The last value is the outlet concentration.
-    """
-    i = np.arange(1, n_stages + 1)
-    if np.isclose(A, 1.0):
-        # The formula above becomes 0/0 at A = 1, and this is its limit.
-        return c_F * (n_stages + 1 - i) / (n_stages + 1)
-    return c_F * (A ** (n_stages + 1 - i) - 1) / (A ** (n_stages + 1) - 1)
-
-
-def single_stage_adsorbent_ratio(c_F, c_out, A):
-    """How many times more adsorbent one stage needs to reach the same c_out.
-
-    A single ideal stage gives c_out = c_F / (1 + A_single), so it needs
-    A_single = c_F / c_out - 1. Dividing by A compares the adsorbent amounts.
-    """
-    return (c_F / c_out - 1.0) / A
 
 
 def breakthrough_ratio(t, depth_fraction=1.0):
@@ -256,8 +227,68 @@ def stirred_tank_schematic():
     return fig
 
 
+def literature_isotherm_plot(carbon, models, c_read):
+    """Fitted isotherms from the journal paper, with every curve read at c_read.
+
+    Args:
+        carbon: Carbon code, "A1" to "A6".
+        models: Models to draw, any of literature_isotherms.MODELS.
+        c_read: Equilibrium concentration in mg/L at which each curve is marked.
+    """
+    best = CARBONS[carbon]["best"]
+    c = np.linspace(0.0, C_MAX, 400)
+    fig = go.Figure()
+    q_top = 0.0
+    for model in models:
+        q = model_loading(carbon, model, c)
+        q_top = max(q_top, float(q.max()))
+        is_best = model == best
+        fig.add_trace(
+            go.Scatter(
+                x=c,
+                y=q,
+                mode="lines",
+                name=f"{model} (best fit)" if is_best else model,
+                line=dict(color=MODEL_COLORS[model], width=3.5 if is_best else 2),
+                hovertemplate="C<sub>e</sub> = %{x:.0f} mg/L<br>q<sub>e</sub> = %{y:.0f} mg/g"
+                f"<extra>{model}</extra>",
+            )
+        )
+
+    if models:
+        # A thin line at the chosen concentration, with a point on each curve.
+        fig.add_shape(
+            type="line", x0=c_read, x1=c_read, y0=0, y1=1, yref="paper",
+            line=dict(color=EQUIPMENT_COLOR, width=1),
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[c_read] * len(models),
+                y=[float(model_loading(carbon, m, c_read)) for m in models],
+                text=list(models),
+                mode="markers",
+                marker=CURRENT_POINT,
+                showlegend=False,
+                hovertemplate="%{text}<br>q<sub>e</sub> = %{y:.0f} mg/g<extra></extra>",
+            )
+        )
+
+    _style_chart(
+        fig,
+        "Equilibrium concentration C<sub>e</sub> (mg/L)",
+        "Equilibrium loading q<sub>e</sub> (mg/g)",
+        460,
+    )
+    fig.update_xaxes(range=[0, C_MAX])
+    fig.update_yaxes(range=[0, (q_top or 100.0) * 1.1])
+    return fig
+
+
 def batch_equilibrium_plot(c_F, S, M, isotherm, c_eq, q_eq, q_F=0.0):
     """Isotherm and operating line on a q vs c graph, with their crossing marked.
+
+    Not used on the Mechanism page any more. Kept for the Batch Adsorption
+    Calculation section, which solves exactly this problem.
 
     Args:
         c_F: Feed concentration in mg/L.
@@ -328,13 +359,11 @@ def batch_equilibrium_plot(c_F, S, M, isotherm, c_eq, q_eq, q_F=0.0):
 # ---------------------------------------------------------------------------
 
 
-def countercurrent_schematic(n_stages, animate=False):
+def countercurrent_schematic(n_stages):
     """Row of stages with fluid flowing right and adsorbent flowing left.
 
     Args:
         n_stages: Number of stages to draw.
-        animate: If True, add moving dots and Play and Pause buttons, and show
-            the illustrative concentration leaving each stage.
     """
     stage_width, stage_gap = 1.6, 0.9
     row_width = n_stages * stage_width + (n_stages - 1) * stage_gap
@@ -346,7 +375,6 @@ def countercurrent_schematic(n_stages, animate=False):
     fluid_y, adsorbent_y = 0.45, -0.45
     fig = _schematic_canvas([-3.0, 14.6], [-2.1, 2.1], 300)
 
-    c_stages = stage_concentrations(COUNTERCURRENT_FEED, ADSORPTION_FACTOR, n_stages)
     for i in range(n_stages):
         fig.add_shape(
             type="rect",
@@ -358,177 +386,18 @@ def countercurrent_schematic(n_stages, animate=False):
             line=dict(color=EQUIPMENT_COLOR, width=2),
         )
         _label(fig, centers[i], 1.3, f"Stage {i + 1}")
-        if animate:
-            _label(fig, centers[i], 0, f"{c_stages[i]:.1f} mg/L", size=12)
 
     # Pipe sections: before the first stage, between stages, after the last.
-    # Thinner pipes in the animation keep the moving dots easy to see.
     starts = np.concatenate(([x_in], rights))
     ends = np.concatenate((lefts, [x_out]))
-    pipe_width = 1 if animate else 3
     for start, end in zip(starts, ends):
-        _arrow(fig, (start, fluid_y), (end, fluid_y), FLUID_COLOR, pipe_width)
-        _arrow(fig, (end, adsorbent_y), (start, adsorbent_y), ADSORBENT_COLOR, pipe_width)
+        _arrow(fig, (start, fluid_y), (end, fluid_y), FLUID_COLOR)
+        _arrow(fig, (end, adsorbent_y), (start, adsorbent_y), ADSORBENT_COLOR)
 
     _label(fig, -1.5, 1.15, "Feed<br>c<sub>F</sub> (mg/L)", size=12)
     _label(fig, 13.1, 1.15, "Treated fluid<br>c<sub>out</sub> (mg/L)", size=12)
     _label(fig, 13.1, -1.15, "Fresh adsorbent<br>q<sub>in</sub> (mg/g)", size=12)
     _label(fig, -1.5, -1.15, "Spent adsorbent<br>q<sub>out</sub> (mg/g)", size=12)
-
-    if animate:
-        _add_flow_animation(
-            fig, x_in, x_out, fluid_y, adsorbent_y, centers, c_stages
-        )
-    return fig
-
-
-def _add_flow_animation(fig, x_in, x_out, fluid_y, adsorbent_y, centers, c_stages):
-    """Add dots that travel along both streams, plus Play and Pause buttons.
-
-    Fluid dots fade as solute is removed. Adsorbent dots start faint and grow
-    stronger as they load up.
-    """
-    spacing, frames_per_spacing, n_frames = 1.2, 10, 200
-    path_length = x_out - x_in
-    base = np.arange(0.0, path_length, spacing)
-
-    # Strength along each path, from 0 (no solute) to 1 (strongest).
-    path_x = np.concatenate(([x_in], centers, [x_out]))
-    fluid_strength = np.concatenate(
-        ([1.0], c_stages / COUNTERCURRENT_FEED, [c_stages[-1] / COUNTERCURRENT_FEED])
-    )
-    # q is proportional to c for a linear isotherm. Fresh adsorbent has q = 0.
-    adsorbent_strength = np.concatenate(([1.0], c_stages / c_stages[0], [0.0]))
-
-    def dot_traces(frame):
-        travelled = (base + frame * spacing / frames_per_spacing) % path_length
-        fluid_x = x_in + travelled
-        adsorbent_x = x_out - travelled
-        fluid_opacity = 0.2 + 0.8 * np.interp(fluid_x, path_x, fluid_strength)
-        adsorbent_opacity = 0.2 + 0.8 * np.interp(
-            adsorbent_x, path_x, adsorbent_strength
-        )
-        return [
-            go.Scatter(
-                x=fluid_x,
-                y=np.full(base.size, fluid_y),
-                mode="markers",
-                marker=dict(size=11, color=FLUID_COLOR, opacity=fluid_opacity),
-                hoverinfo="skip",
-            ),
-            go.Scatter(
-                x=adsorbent_x,
-                y=np.full(base.size, adsorbent_y),
-                mode="markers",
-                marker=dict(size=11, color=ADSORBENT_COLOR, opacity=adsorbent_opacity),
-                hoverinfo="skip",
-            ),
-        ]
-
-    fig.add_traces(dot_traces(0))
-    fig.frames = [go.Frame(data=dot_traces(i), name=str(i)) for i in range(n_frames)]
-
-    play = dict(
-        frame=dict(duration=70, redraw=False),
-        transition=dict(duration=0),
-        mode="immediate",
-    )
-    pause = dict(
-        frame=dict(duration=0, redraw=False),
-        transition=dict(duration=0),
-        mode="immediate",
-    )
-    fig.update_layout(
-        margin=dict(l=0, r=0, t=44, b=0),
-        updatemenus=[
-            dict(
-                type="buttons",
-                direction="left",
-                x=0,
-                y=1.0,
-                xanchor="left",
-                yanchor="bottom",
-                showactive=False,
-                bgcolor="#ffffff",
-                bordercolor=EQUIPMENT_COLOR,
-                font=dict(color="#0b0b0b"),
-                buttons=[
-                    dict(label="Play", method="animate", args=[None, play]),
-                    dict(label="Pause", method="animate", args=[[None], pause]),
-                ],
-            )
-        ],
-    )
-
-
-def countercurrent_comparison_plot(n_selected):
-    """Outlet concentration against the number of stages, for the illustrative case.
-
-    Args:
-        n_selected: Stage count to highlight on the curve.
-    """
-    stages = np.arange(1, MAX_STAGES + 1)
-    outlets = [
-        stage_concentrations(COUNTERCURRENT_FEED, ADSORPTION_FACTOR, n)[-1]
-        for n in stages
-    ]
-    single_stage = COUNTERCURRENT_FEED / (1.0 + ADSORPTION_FACTOR)
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=[1, MAX_STAGES],
-            y=[single_stage, single_stage],
-            mode="lines",
-            name="Single stage, same adsorbent",
-            line=dict(color=EQUIPMENT_COLOR, width=2),
-            hovertemplate="%{y:.1f} mg/L<extra>Single stage</extra>",
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=stages,
-            y=outlets,
-            mode="lines+markers",
-            name="Countercurrent",
-            line=dict(color=FLUID_COLOR, width=2.5),
-            marker=dict(size=9, color=FLUID_COLOR),
-            hovertemplate="N = %{x}<br>c<sub>out</sub> = %{y:.1f} mg/L<extra></extra>",
-        )
-    )
-    selected = outlets[n_selected - 1]
-    fig.add_trace(
-        go.Scatter(
-            x=[n_selected],
-            y=[selected],
-            mode="markers",
-            marker=CURRENT_POINT,
-            showlegend=False,
-            hovertemplate="N = %{x}<br>c<sub>out</sub> = %{y:.1f} mg/L<extra></extra>",
-        )
-    )
-    fig.add_annotation(
-        x=n_selected,
-        y=selected,
-        text=f"N = {n_selected}: {selected:.1f} mg/L",
-        ax=0,
-        ay=-30,
-        arrowcolor=EQUIPMENT_COLOR,
-        arrowwidth=1,
-        arrowhead=0,
-    )
-
-    _style_chart(
-        fig,
-        "Number of stages N",
-        "Outlet concentration c<sub>out</sub> (mg/L)",
-        400,
-        title="Illustrative only: ideal stages and a linear isotherm",
-    )
-    fig.update_xaxes(
-        tickvals=stages, range=[0.7, MAX_STAGES + 0.3], showgrid=False
-    )
-    fig.update_yaxes(range=[0, single_stage * 1.3])
     return fig
 
 

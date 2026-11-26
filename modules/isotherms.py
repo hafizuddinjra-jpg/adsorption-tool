@@ -63,6 +63,25 @@ def langmuir(c, q0, K):
     return q0 * c / (K + c)
 
 
+def redlich_peterson(c, K_R, A_R, beta):
+    """Redlich-Peterson isotherm: q = K_R * c / (1 + A_R * c^beta).
+
+    A three-parameter blend of Langmuir and Freundlich. With beta = 1 it becomes
+    Langmuir; at high c it behaves like Freundlich.
+
+    Args:
+        c: Fluid concentration in mg/L. A single number or a NumPy array.
+        K_R: Redlich-Peterson constant in L/g.
+        A_R: Redlich-Peterson constant in (L/mg)^beta.
+        beta: Exponent between 0 and 1 (dimensionless).
+
+    Returns:
+        Equilibrium loading q in mg/g, with the same shape as c.
+    """
+    c = np.asarray(c, dtype=float)
+    return K_R * c / (1.0 + A_R * np.power(c, beta))
+
+
 def batch_operating_line(c, c_F, S, M, q_F=0.0):
     """Operating line for one batch stage: q = q_F + (S/M)(c_F - c).
 
