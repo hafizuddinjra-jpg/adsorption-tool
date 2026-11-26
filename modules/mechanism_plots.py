@@ -1,4 +1,4 @@
-"""Plotly figures and small illustrative calculations for the Mechanism page.
+"""Plotly figures for the Mechanism page.
 
 Schematics are drawn with Plotly shapes on hidden axes, so their positions are
 plain drawing coordinates, not engineering units. The charts use real units.
@@ -9,7 +9,6 @@ import plotly.graph_objects as go
 from plotly.colors import sample_colorscale
 
 from modules.isotherms import batch_operating_line
-from modules.literature_isotherms import C_MAX, CARBONS, model_loading
 
 # One colour per material, used in all three tabs. Both pass the colour-blind
 # and contrast checks on light and dark backgrounds.
@@ -23,51 +22,6 @@ COLUMN_COLORSCALE = [[0.0, "#fbe4d8"], [1.0, ADSORBENT_COLOR]]
 
 # Marker for "you are here" points. A white centre reads on either background.
 CURRENT_POINT = dict(size=14, color="#ffffff", line=dict(color="#52514e", width=3))
-
-# One colour per isotherm model on the journal chart: the first three slots of a
-# colour-blind-checked palette, so any two models stay distinguishable.
-MODEL_COLORS = {
-    "Langmuir": "#2a78d6",
-    "Freundlich": "#eb6834",
-    "Redlich–Peterson": "#1baf7a",
-}
-
-# Illustrative fixed bed example.
-BED_HEIGHT = 100.0  # H_T, cm
-MID_TIME = 100.0  # t_50, min (time when the outlet reaches c/c_0 = 0.5)
-STEEPNESS = 0.15  # k, 1/min (larger values give a sharper curve and shorter MTZ)
-BREAK_RATIO = 0.05  # c/c_0 taken as the breakthrough point
-END_TIME = 200.0  # last time shown, min
-
-
-# ---------------------------------------------------------------------------
-# Small illustrative calculations
-# ---------------------------------------------------------------------------
-
-
-def breakthrough_ratio(t, depth_fraction=1.0):
-    """Illustrative c/c_0 from a logistic function, at any depth in the bed.
-
-    Args:
-        t: Time in min. A single number or a NumPy array.
-        depth_fraction: Position z / H_T, where 0 is the inlet and 1 the outlet.
-
-    Returns:
-        c/c_0 (dimensionless). The same function drives both the column colours
-        and the breakthrough curve, so the two views always agree.
-    """
-    return 1.0 / (1.0 + np.exp(-STEEPNESS * (t - MID_TIME * depth_fraction)))
-
-
-def breakthrough_time():
-    """Time in min when the outlet reaches BREAK_RATIO, from the logistic."""
-    return MID_TIME - _mtz_half_time()
-
-
-def _mtz_half_time():
-    """Time in min between the middle of the MTZ and either edge of it."""
-    return np.log((1.0 - BREAK_RATIO) / BREAK_RATIO) / STEEPNESS
-
 
 # ---------------------------------------------------------------------------
 # Drawing helpers
@@ -224,63 +178,6 @@ def stirred_tank_schematic():
     _label(fig, 11.8, 2.5, "Treated solution<br>c (mg/L)")
     _arrow(fig, (10.7, 1.0), (12.9, 1.0), ADSORBENT_COLOR)
     _label(fig, 11.8, 0.3, "Spent adsorbent<br>q (mg/g)")
-    return fig
-
-
-def literature_isotherm_plot(carbon, models, c_read):
-    """Fitted isotherms from the journal paper, with every curve read at c_read.
-
-    Args:
-        carbon: Carbon code, "A1" to "A6".
-        models: Models to draw, any of literature_isotherms.MODELS.
-        c_read: Equilibrium concentration in mg/L at which each curve is marked.
-    """
-    best = CARBONS[carbon]["best"]
-    c = np.linspace(0.0, C_MAX, 400)
-    fig = go.Figure()
-    q_top = 0.0
-    for model in models:
-        q = model_loading(carbon, model, c)
-        q_top = max(q_top, float(q.max()))
-        is_best = model == best
-        fig.add_trace(
-            go.Scatter(
-                x=c,
-                y=q,
-                mode="lines",
-                name=f"{model} (best fit)" if is_best else model,
-                line=dict(color=MODEL_COLORS[model], width=3.5 if is_best else 2),
-                hovertemplate="C<sub>e</sub> = %{x:.0f} mg/L<br>q<sub>e</sub> = %{y:.0f} mg/g"
-                f"<extra>{model}</extra>",
-            )
-        )
-
-    if models:
-        # A thin line at the chosen concentration, with a point on each curve.
-        fig.add_shape(
-            type="line", x0=c_read, x1=c_read, y0=0, y1=1, yref="paper",
-            line=dict(color=EQUIPMENT_COLOR, width=1),
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=[c_read] * len(models),
-                y=[float(model_loading(carbon, m, c_read)) for m in models],
-                text=list(models),
-                mode="markers",
-                marker=CURRENT_POINT,
-                showlegend=False,
-                hovertemplate="%{text}<br>q<sub>e</sub> = %{y:.0f} mg/g<extra></extra>",
-            )
-        )
-
-    _style_chart(
-        fig,
-        "Equilibrium concentration C<sub>e</sub> (mg/L)",
-        "Equilibrium loading q<sub>e</sub> (mg/g)",
-        460,
-    )
-    fig.update_xaxes(range=[0, C_MAX])
-    fig.update_yaxes(range=[0, (q_top or 100.0) * 1.1])
     return fig
 
 
@@ -463,133 +360,4 @@ def fixed_bed_schematic():
     _arrow(fig, (0.9, height_middle), (0.9, top), EQUIPMENT_COLOR, width=1)
     _arrow(fig, (0.9, height_middle), (0.9, bottom), EQUIPMENT_COLOR, width=1)
     _label(fig, 1.0, 2.0, "H<sub>T</sub> (cm)", xanchor="left", size=12)
-    return fig
-
-
-def fixed_bed_column(t):
-    """Column coloured by loading at time t, with the MTZ picked out.
-
-    Args:
-        t: Time since the start of the run, in min.
-    """
-    depth = np.linspace(0.0, BED_HEIGHT, 201)
-    loading = breakthrough_ratio(t, depth / BED_HEIGHT)
-
-    fig = go.Figure(
-        go.Heatmap(
-            z=np.column_stack((loading, loading)),
-            x=[0, 1],
-            y=depth,
-            zmin=0,
-            zmax=1,
-            colorscale=COLUMN_COLORSCALE,
-            colorbar=dict(
-                title=dict(text="Bed loading"),
-                tickvals=[0, 1],
-                ticktext=["Fresh", "Saturated"],
-                thickness=12,
-                len=0.6,
-            ),
-            hovertemplate="Depth %{y:.0f} cm<extra></extra>",
-        )
-    )
-    fig.add_shape(
-        type="rect",
-        x0=-0.5,
-        x1=1.5,
-        y0=0,
-        y1=BED_HEIGHT,
-        line=dict(color=EQUIPMENT_COLOR, width=2),
-    )
-
-    _arrow(fig, (0.5, -20), (0.5, -2), FLUID_COLOR)
-    _arrow(fig, (0.5, BED_HEIGHT + 2), (0.5, BED_HEIGHT + 20), FLUID_COLOR)
-    _label(fig, 0.8, -12, "Feed in", xanchor="left", size=12)
-    _label(fig, 0.8, BED_HEIGHT + 12, "Outlet", xanchor="left", size=12)
-
-    # MTZ edges, where the local c/c_0 is 0.95 and 0.05. They move with time and
-    # are limited to the bed, so a zone outside the column gets no label.
-    half_length = BED_HEIGHT * _mtz_half_time() / MID_TIME
-    front = BED_HEIGHT * t / MID_TIME
-    mtz_top = float(np.clip(front - half_length, 0.0, BED_HEIGHT))
-    mtz_bottom = float(np.clip(front + half_length, 0.0, BED_HEIGHT))
-    for edge in (mtz_top, mtz_bottom):
-        if 0.0 < edge < BED_HEIGHT:
-            fig.add_shape(
-                type="line",
-                x0=1.5,
-                x1=1.9,
-                y0=edge,
-                y1=edge,
-                line=dict(color=EQUIPMENT_COLOR, width=1),
-            )
-    zones = [
-        ("Saturated", 0.0, mtz_top),
-        ("MTZ", mtz_top, mtz_bottom),
-        ("Fresh", mtz_bottom, BED_HEIGHT),
-    ]
-    for name, zone_top, zone_bottom in zones:
-        if zone_bottom - zone_top >= 6.0:
-            _label(fig, 1.95, (zone_top + zone_bottom) / 2, name, xanchor="left", size=12)
-
-    _style_chart(fig, None, "Depth in bed (cm)", 480)
-    fig.update_xaxes(visible=False, range=[-1.0, 3.6], fixedrange=True)
-    fig.update_yaxes(
-        range=[BED_HEIGHT + 24, -24],
-        tickvals=np.arange(0, BED_HEIGHT + 1, 25),
-        showgrid=False,
-        fixedrange=True,
-    )
-    return fig
-
-
-def breakthrough_plot(t):
-    """Illustrative S-shaped breakthrough curve with a marker at time t.
-
-    Args:
-        t: Time since the start of the run, in min.
-    """
-    times = np.linspace(0.0, END_TIME, 401)
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=times,
-            y=breakthrough_ratio(times),
-            mode="lines",
-            line=dict(color=FLUID_COLOR, width=2.5),
-            hovertemplate="t = %{x:.0f} min<br>c/c<sub>0</sub> = %{y:.2f}<extra></extra>",
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[t],
-            y=[breakthrough_ratio(t)],
-            mode="markers",
-            marker=CURRENT_POINT,
-            hovertemplate="t = %{x:.0f} min<br>c/c<sub>0</sub> = %{y:.2f}<extra></extra>",
-        )
-    )
-
-    # For this symmetric curve t_t falls at the midpoint of the S.
-    for time, name in [(breakthrough_time(), "t<sub>b</sub>"), (MID_TIME, "t<sub>t</sub>")]:
-        fig.add_shape(
-            type="line",
-            x0=time,
-            x1=time,
-            y0=0,
-            y1=1.04,
-            line=dict(color=EQUIPMENT_COLOR, width=1),
-        )
-        _label(fig, time, 1.08, name)
-
-    _style_chart(
-        fig,
-        "Time t (min)",
-        "Outlet c/c<sub>0</sub> (dimensionless)",
-        480,
-        title="Illustrative curve from a logistic function, not real data",
-    )
-    fig.update_layout(showlegend=False)
-    fig.update_xaxes(range=[0, END_TIME])
-    fig.update_yaxes(range=[-0.04, 1.14], tickvals=[0, 0.25, 0.5, 0.75, 1.0])
     return fig

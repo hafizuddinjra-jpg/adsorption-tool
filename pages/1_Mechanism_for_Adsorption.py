@@ -1,31 +1,14 @@
 """Mechanism for Adsorption: three contacting modes and a comparison table.
 
-This page holds the text, controls and layout. The published isotherm data are
-in modules/literature_isotherms.py and the figures are in modules/mechanism_plots.py.
+This page holds the text and layout. The figures are in modules/mechanism_plots.py.
 """
 
 import pandas as pd
 import streamlit as st
 
-from modules.literature_isotherms import (
-    C_MAX,
-    CARBONS,
-    CITATION,
-    CONDITIONS,
-    DOI_URL,
-    LICENCE,
-    MODELS,
-    model_loading,
-)
 from modules.mechanism_plots import (
-    END_TIME,
-    breakthrough_plot,
-    breakthrough_ratio,
-    breakthrough_time,
     countercurrent_schematic,
-    fixed_bed_column,
     fixed_bed_schematic,
-    literature_isotherm_plot,
     stirred_tank_schematic,
 )
 
@@ -67,125 +50,6 @@ def show_pros_and_cons(advantages, disadvantages, applications):
 # ---------------------------------------------------------------------------
 # Tab 1: stirred tank
 # ---------------------------------------------------------------------------
-
-
-def journal_isotherm_section():
-    """Published isotherms for methylene blue on activated carbon, with their source."""
-    st.markdown("#### From a journal: methylene blue on activated carbon")
-    st.markdown(
-        "Lawtae and Tangsathitkulchai (2021) made six activated carbons from longan "
-        "fruit seeds and measured how much methylene blue (MB) dye each one adsorbs "
-        "at equilibrium. They fitted three isotherm models to their data. The curves "
-        "below use the constants they published."
-    )
-    st.caption(
-        f"Batch tests: {CONDITIONS['volume_mL']} mL of MB solution at "
-        f"{CONDITIONS['initial_conc_mg_L']} mg/L with {CONDITIONS['carbon_g']} g of "
-        f"carbon, {CONDITIONS['temperature_C']} °C, pH {CONDITIONS['pH']}, and "
-        f"{CONDITIONS['contact_time_h']} h to reach equilibrium. The constants come "
-        "from non-linear regression."
-    )
-
-    controls, chart = st.columns([1, 2])
-    with controls:
-        carbon = st.selectbox(
-            "Activated carbon",
-            list(CARBONS),
-            index=5,
-            format_func=lambda k: (
-                f"{k}: {CARBONS[k]['pores'].lower()}, {CARBONS[k]['bet_m2_g']:,} m²/g"
-            ),
-            key="lit_carbon",
-        )
-        data = CARBONS[carbon]
-        st.caption(f"{data['sample']}, made by {data['made_by']}.")
-        st.markdown("Models to show")
-        models = [m for m in MODELS if st.checkbox(m, value=True, key=f"lit_model_{m}")]
-        c_read = st.slider(
-            "Read the curves at $C_e$ (mg/L)", 0, int(C_MAX), 100, 5, key="lit_c_read"
-        )
-    with chart:
-        if models:
-            show_chart(literature_isotherm_plot(carbon, models, c_read), "lit_plot")
-        else:
-            st.info("Tick at least one model to draw its curve.")
-
-    if models:
-        for column, model in zip(st.columns(len(MODELS)), models):
-            best = " (best fit)" if model == data["best"] else ""
-            column.metric(
-                f"{model}{best}, q_e (mg/g)", f"{float(model_loading(carbon, model, c_read)):.0f}"
-            )
-        st.caption(f"Each value is the predicted loading at C_e = {c_read} mg/L.")
-
-    lp, fp, rp = data["langmuir"], data["freundlich"], data["redlich_peterson"]
-    st.table(
-        pd.DataFrame(
-            {
-                "Model": list(MODELS),
-                "Constants": [
-                    f"q_m = {lp['q_m']:.2f} mg/g, K_L = {lp['K_L']:.3f} L/mg",
-                    f"K_F = {fp['K_F']:.1f}, n_F = {fp['n_F']:.2f}",
-                    f"K_R = {rp['K_R']:.1f} L/g, A_R = {rp['A_R']:.2f}, β = {rp['beta']:.2f}",
-                ],
-                "R²": [f"{p['R2']:.3f}" for p in (lp, fp, rp)],
-                "Δq (%)": [f"{p['dq']:.2f}" for p in (lp, fp, rp)],
-                "Authors' best fit": ["Yes" if m == data["best"] else "" for m in MODELS],
-            }
-        ).set_index("Model")
-    )
-    st.caption(
-        "Δq is the authors' relative error, so a lower value means a closer fit. "
-        "The paper prints no units for K_F and A_R."
-    )
-
-    st.markdown("**The models as the paper writes them**")
-    st.latex(r"q_e = \frac{q_m K_L C_e}{1 + K_L C_e} \quad \text{(Langmuir)}")
-    st.latex(r"q_e = K_F\, C_e^{1/n_F} \quad \text{(Freundlich)}")
-    st.latex(r"q_e = \frac{K_R C_e}{1 + A_R C_e^{\beta}} \quad \text{(Redlich-Peterson)}")
-    st.markdown(
-        "In the lecture's notation, this carbon's Langmuir constants are "
-        f"$q_0 = q_m$ = {lp['q_m']:.0f} mg/g and $K = 1/K_L$ = {1 / lp['K_L']:.1f} mg/L. "
-        f"Its Freundlich exponent is $n = 1/n_F$ = {1 / fp['n_F']:.3f}, because the "
-        "lecture's $n$ is the paper's $1/n_F$. Redlich–Peterson blends the two: "
-        "$\\beta = 1$ turns it into Langmuir, and at high $C_e$ it behaves like Freundlich."
-    )
-    st.markdown(
-        "The authors found that Redlich–Peterson best describes the microporous "
-        "carbons (A1–A3) and Freundlich the mesoporous ones (A4–A6)."
-    )
-
-    with st.expander("Constants for all six carbons (Table 7 of the paper)"):
-        st.table(
-            pd.DataFrame(
-                [
-                    {
-                        "Carbon": k,
-                        "Pores": v["pores"],
-                        "BET (m²/g)": f"{v['bet_m2_g']:,}",
-                        "q_m (mg/g)": f"{v['langmuir']['q_m']:.2f}",
-                        "K_L (L/mg)": f"{v['langmuir']['K_L']:.3f}",
-                        "Langmuir R²": f"{v['langmuir']['R2']:.3f}",
-                        "K_F": f"{v['freundlich']['K_F']:.1f}",
-                        "n_F": f"{v['freundlich']['n_F']:.2f}",
-                        "Freundlich R²": f"{v['freundlich']['R2']:.3f}",
-                        "K_R (L/g)": f"{v['redlich_peterson']['K_R']:.1f}",
-                        "A_R": f"{v['redlich_peterson']['A_R']:.2f}",
-                        "β": f"{v['redlich_peterson']['beta']:.2f}",
-                        "R–P R²": f"{v['redlich_peterson']['R2']:.3f}",
-                        "Best fit": v["best"],
-                    }
-                    for k, v in CARBONS.items()
-                ]
-            ).set_index("Carbon")
-        )
-
-    st.caption(
-        "Curves are the authors' fitted models over the range they measured "
-        f"(C_e up to {C_MAX:.0f} mg/L). Their measured points are plotted in Figure 4 "
-        "of the paper and are not reproduced here."
-    )
-    st.markdown(f"Source: {CITATION} [{DOI_URL}]({DOI_URL}). Open access under {LICENCE}.")
 
 
 def stirred_tank_tab():
@@ -242,9 +106,6 @@ def stirred_tank_tab():
             "Laboratory screening of adsorbents",
         ],
     )
-
-    st.divider()
-    journal_isotherm_section()
 
 
 # ---------------------------------------------------------------------------
@@ -304,50 +165,6 @@ def countercurrent_tab():
 # ---------------------------------------------------------------------------
 # Tab 3: fixed bed
 # ---------------------------------------------------------------------------
-
-
-def bed_status(t):
-    """Describe in words what the bed is doing at time t (min)."""
-    t_b = breakthrough_time()
-    ratio = float(breakthrough_ratio(t))
-    if t < t_b:
-        return (
-            f"Outlet c/c₀ = {ratio:.2f}. The MTZ is still inside the bed, so the "
-            "outlet stays clean."
-        )
-    if ratio < 0.95:
-        return (
-            f"Outlet c/c₀ = {ratio:.2f}. The MTZ has reached the outlet, so solute "
-            "is breaking through. A real bed would already be stopped."
-        )
-    return (
-        f"Outlet c/c₀ = {ratio:.2f}. The whole bed is saturated, so solute passes "
-        "straight through."
-    )
-
-
-def fixed_bed_demo():
-    """Time slider driving the column and the breakthrough curve together."""
-    st.markdown("#### Try it: watch the MTZ move")
-    st.caption(
-        "Illustrative only. Both views come from one logistic function for a bed of "
-        "height $H_T$ = 100 cm, not from real data."
-    )
-
-    t = st.slider(
-        "Time since the start of the run (min)",
-        0,
-        int(END_TIME),
-        50,
-        1,
-        key="fb_time",
-    )
-    column, curve = st.columns([2, 3])
-    with column:
-        show_chart(fixed_bed_column(t), "fb_column")
-    with curve:
-        show_chart(breakthrough_plot(t), "fb_breakthrough")
-    st.markdown(f"**At t = {t} min:** {bed_status(t)}")
 
 
 def fixed_bed_tab():
@@ -413,9 +230,6 @@ def fixed_bed_tab():
             "Drying gases with molecular sieves or alumina",
         ],
     )
-
-    st.divider()
-    fixed_bed_demo()
 
 
 # ---------------------------------------------------------------------------
